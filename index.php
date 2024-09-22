@@ -4,7 +4,6 @@ require_once('vendor/autoload.php'); // Inclure TCPDF via autoload
 // Optimisation des paramètres d'exécution
 ini_set('memory_limit', '12G');
 ini_set('display_errors', 0);  // Désactiver l'affichage des erreurs pour éviter les sorties non voulues
-// setlocale(LC_TIME, 'fr_FR.UTF-8'); ne tenait pas compte du fuseau horaire sur windows
 date_default_timezone_set('Europe/Paris');
 ob_start();  // Démarrer la mise en mémoire tampon de sortie
 
@@ -24,19 +23,16 @@ function lireFichierXML($fichier, &$smsByDay, $numeroRecherche = null) {
     while ($reader->read()) {
         if ($reader->nodeType == XMLReader::ELEMENT && $reader->name == 'sms') {
             $address = $reader->getAttribute('address');
-            // Si des numéros sont fournis, on filtre par ces numéros, sinon on inclut tous les SMS
             if (empty($numeroRecherche) || in_array($address, $numeroRecherche)) {
                 ajouterSmsAuTableau($smsByDay, $reader);
             }
-        }elseif ($reader->nodeType == XMLReader::ELEMENT && $reader->name == 'mms') {
+        } elseif ($reader->nodeType == XMLReader::ELEMENT && $reader->name == 'mms') {
             $address = $reader->getAttribute('address');
-            // Si des numéros sont fournis, on filtre par ces numéros, sinon on inclut tous les SMS
             if (empty($numeroRecherche) || in_array($address, $numeroRecherche)) {
                 ajouterMmsAuTableau($smsByDay, $reader);
             }
-        }elseif ($reader->nodeType == XMLReader::ELEMENT && $reader->name == 'call') {
+        } elseif ($reader->nodeType == XMLReader::ELEMENT && $reader->name == 'call') {
             $address = $reader->getAttribute('number');
-            // Si des numéros sont fournis, on filtre par ces numéros, sinon on inclut tous les SMS
             if (empty($numeroRecherche) || in_array($address, $numeroRecherche)) {
                 ajouterCallAuTableau($smsByDay, $reader);
             }
@@ -53,66 +49,64 @@ function ajouterSmsAuTableau(&$smsByDay, $reader) {
     $date = $reader->getAttribute('date');
     $body = $reader->getAttribute('body');
     $contactName = $reader->getAttribute('contact_name');
+    $nTelephone = $reader->getAttribute('address');
 
     $timestamp = (int)($date / 1000);  // Conversion du timestamp
     $dayKey = date('Y-m-d', $timestamp);  // Regrouper les messages par jour
 
-    // Ajouter le SMS dans le tableau regroupé par jour
     $smsByDay[$dayKey][] = [
         'title' => '<strong>SMS</strong> : ',
         'time' => date('H:i:s', $timestamp),  // Heure du SMS
         'message' => htmlspecialchars($body),
+        'ntelephone' =>$nTelephone,
         'contact' => htmlspecialchars($contactName),
         'duration' => ''
     ];
 }
 
-function ajouterMmsAutableau(&$smsByDay, $reader)
-{
+function ajouterMmsAutableau(&$smsByDay, $reader) {
     $date = $reader->getAttribute('date');
-    // $body = $reader->getAttribute('body');
     $contactName = $reader->getAttribute('contact_name');
+    $nTelephone = $reader->getAttribute('address');
 
     $timestamp = (int)($date / 1000);  // Conversion du timestamp
     $dayKey = date('Y-m-d', $timestamp);  // Regrouper les messages par jour
 
-    // Ajouter le SMS dans le tableau regroupé par jour
     $smsByDay[$dayKey][] = [
         'title' => '<strong>MMS</strong> : ',
         'time' => date('H:i:s', $timestamp),  // Heure du MMS
         'message' => '<i>image non enregistré</i>',
+        'ntelephone' =>$nTelephone,
         'contact' => htmlspecialchars($contactName),
         'duration' => ''
     ];
 }
 
-function ajouterCallAutableau(&$smsByDay, $reader)
-{
+function ajouterCallAutableau(&$smsByDay, $reader) {
     $date = $reader->getAttribute('date');
-    // $body = $reader->getAttribute('body');
     $contactName = $reader->getAttribute('contact_name');
-
     $duration = $reader->getAttribute('duration');
-
-    $durationFormatted = ($duration == 0) ? 'Appel manqué' : round($duration / 60, 2)  . ' minutes';
+    $nTelephone = $reader->getAttribute('number');
+    $durationFormatted = ($duration == 0) ? 'Appel manqué' : round($duration / 60, 2) . ' minutes';
 
     $timestamp = (int)($date / 1000);  // Conversion du timestamp
     $dayKey = date('Y-m-d', $timestamp);  // Regrouper les messages par jour
 
-    // Ajouter le SMS dans le tableau regroupé par jour
     $smsByDay[$dayKey][] = [
         'title' => '<strong>Appel Téléphonique</strong> : ',
         'time' => date('H:i:s', $timestamp),  // Heure appel
         'message' => '<i>appel non enregistré</i>',
+        'ntelephone' =>$nTelephone,
         'contact' => htmlspecialchars($contactName),
-        'duration' => '<strong>Durée :</strong>'.$durationFormatted
+        'duration' => '<strong>Durée :</strong>' . $durationFormatted
     ];
 }
 
 // Lecture des fichiers XML
-lireFichierXML('smsPerso.xml', $smsByDay, $numeroRecherche);  // Premier fichier avec filtrage par numéro
-lireFichierXML('sms-20240818155416.xml', $smsByDay);  // Deuxième fichier, sans filtrage
-lireFichierXML('calls-20240818155416.xml', $smsByDay);  // Troisiéme fichier sans filtrage
+// lireFichierXML('smsPerso.xml', $smsByDay, $numeroRecherche);  // Premier fichier avec filtrage par numéro
+// lireFichierXML('sms-20240818155416.xml', $smsByDay);  // Deuxième fichier, sans filtrage
+// lireFichierXML('calls-20240818155416.xml', $smsByDay);  // Troisième fichier sans filtrage
+lireFichierXML('smses_backup.xml', $smsByDay);  // Quatrième fichier sans filtrage
 
 // --- Étape 2 : Générer le PDF avec TCPDF ---
 $pdf = new TCPDF();
@@ -176,27 +170,33 @@ function formaterHeureEnFrancais($heure) {
 
 foreach ($period as $day) {
     $currentDate = $day->format('Y-m-d');
-
-    // Format de la date souhaité : exemple "lundi 13 mars 2024"
     $formattedDate = formaterDateEnFrancais($day);
 
     if (isset($smsByDay[$currentDate])) {
         $content = "";
         foreach ($smsByDay[$currentDate] as $sms) {
-            // Utiliser la fonction pour formater l'heure avec balises <strong>
             $formattedTime = formaterHeureEnFrancais($sms['time']);
-            $content .= '<p>'.$sms['title'].$formattedTime . " <strong>Contact</strong> : " . $sms['contact'] . ": " . $sms['message'] ." ".$sms['duration']."</p>";
+            $content .= '<p>'.$sms['title'].$formattedTime . " <strong>N°Téléphone</strong> : ". $sms['ntelephone'] ." <strong>Nom Contact</strong> : " . $sms['contact'] . ": " . $sms['message'] ." ".$sms['duration']."</p>";
         }
-
-        // Utilisation de writeHTMLCell pour supporter le HTML
         $pdf->writeHTMLCell(0, 50, '', '', "<p>$formattedDate</p><p>$content</p>", 1, 1, 0, true, 'L', true);
     } else {
-        // Cellule vide avec seulement la date formatée
         $pdf->Cell(0, 50, $formattedDate, 1, 1, 'C');
     }
 }
 
-// --- Étape 4 : Exporter le PDF ---
+// --- Étape 4 : Exporter le PDF dans un dossier ---
 ob_end_clean();  // Nettoyer le tampon de sortie
-$pdf->Output('calendrier_sms.pdf', 'I');  // I = afficher dans le navigateur, D = télécharger
+
+$cheminPdf = __DIR__ . '/dossiers_pdfs/calendrier_sms.pdf';  // Chemin du fichier PDF dans un sous-dossier "dossiers_pdfs"
+$pdf->Output($cheminPdf, 'F');  // F = enregistrer sur le serveur
+
+// Rediriger vers le fichier pour téléchargement
+header('Content-Type: application/pdf');
+header('Content-Disposition: attachment; filename="calendrier_sms.pdf"');
+header('Content-Length: ' . filesize($cheminPdf));
+readfile($cheminPdf);
+exit;
+
 ?>
+
+<sms protocol="0" address="+33642134038" date="1644161544000" type="1" subject="null" body="Hello Anais ,tu vas bien ? J&amp;#039;ai envoy&#xE9; un message &#xE0; Ben ne sachant pas si c&amp;#039;est lui qui est de permanence , pour info, je prends Garcia Florian lundi 7/2 &#xE0; 7h en. Spl tu peux me le d&#xE9;clarer stp ? Remplacement schwanke Christophe maladie bisou !!!! " toa="null" sc_toa="null" service_center="null" read="1" status="-1" locked="0" date_sent="0" sub_id="1" readable_date="06 Feb 2022 16:32:24" contact_name=""/>
