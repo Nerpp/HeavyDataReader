@@ -36,6 +36,11 @@ function lireFichierXML($fichier, &$smsByDay, $numeroRecherche = null) {
             if (empty($numeroRecherche) || in_array($address, $numeroRecherche)) {
                 ajouterCallAuTableau($smsByDay, $reader);
             }
+        } elseif ($reader->nodeType == XMLReader::ELEMENT && $reader->name == 'mail') {
+            $address = $reader->getAttribute('number');
+            if (empty($numeroRecherche) || in_array($address, $numeroRecherche)) {
+                ajouterMailAuTableau($smsByDay, $reader);
+            }
         }
 
         gc_collect_cycles();  // Collecter les cycles de mémoire pour éviter les fuites
@@ -102,11 +107,33 @@ function ajouterCallAutableau(&$smsByDay, $reader) {
     ];
 }
 
+function ajouterMailAuTableau(&$smsByDay, $reader) {
+    $date = $reader->getAttribute('date');
+    $body = $reader->getAttribute('body');
+
+    $subject = $reader->getAttribute('subject');
+
+ 
+    $timestamp = (int)($date / 1000);  // Conversion du timestamp
+    $dayKey = date('Y-m-d', $timestamp);  // Regrouper les messages par jour
+
+    $smsByDay[$dayKey][] = [
+        'title' => '<strong>Mail</strong> Sujet :'. $subject.' ',
+        'time' => date('H:i:s', $timestamp),  // Heure du SMS
+        'message' => htmlspecialchars($body),
+        'ntelephone' =>'<i>aucun numéro de téléphone</i>',
+        'contact' => '',
+        'duration' => ''
+    ];
+}
+
 // Lecture des fichiers XML
-// lireFichierXML('smsPerso.xml', $smsByDay, $numeroRecherche);  // Premier fichier avec filtrage par numéro
-// lireFichierXML('sms-20240818155416.xml', $smsByDay);  // Deuxième fichier, sans filtrage
-// lireFichierXML('calls-20240818155416.xml', $smsByDay);  // Troisième fichier sans filtrage
+lireFichierXML('smsPerso.xml', $smsByDay, $numeroRecherche);  // Premier fichier avec filtrage par numéro
+lireFichierXML('sms-20240818155416.xml', $smsByDay);  // Deuxième fichier, sans filtrage
+lireFichierXML('calls-20240818155416.xml', $smsByDay);  // Troisième fichier sans filtrage
 lireFichierXML('smses_backup.xml', $smsByDay);  // Quatrième fichier sans filtrage
+lireFichierXML('email.xml', $smsByDay);  // Quatrième fichier sans filtrage
+
 
 // --- Étape 2 : Générer le PDF avec TCPDF ---
 $pdf = new TCPDF();
@@ -172,15 +199,17 @@ foreach ($period as $day) {
     $currentDate = $day->format('Y-m-d');
     $formattedDate = formaterDateEnFrancais($day);
 
+    // On n'affiche que les jours où il y a des informations (SMS, MMS, Appels)
     if (isset($smsByDay[$currentDate])) {
         $content = "";
         foreach ($smsByDay[$currentDate] as $sms) {
             $formattedTime = formaterHeureEnFrancais($sms['time']);
             $content .= '<p>'.$sms['title'].$formattedTime . " <strong>N°Téléphone</strong> : ". $sms['ntelephone'] ." <strong>Nom Contact</strong> : " . $sms['contact'] . ": " . $sms['message'] ." ".$sms['duration']."</p>";
+       // Supprimer le message après l'avoir utilisé
+       unset($smsByDay[$currentDate][$key]);
         }
+
         $pdf->writeHTMLCell(0, 50, '', '', "<p>$formattedDate</p><p>$content</p>", 1, 1, 0, true, 'L', true);
-    } else {
-        $pdf->Cell(0, 50, $formattedDate, 1, 1, 'C');
     }
 }
 
@@ -191,12 +220,10 @@ $cheminPdf = __DIR__ . '/dossiers_pdfs/calendrier_sms.pdf';  // Chemin du fichie
 $pdf->Output($cheminPdf, 'F');  // F = enregistrer sur le serveur
 
 // Rediriger vers le fichier pour téléchargement
-header('Content-Type: application/pdf');
-header('Content-Disposition: attachment; filename="calendrier_sms.pdf"');
-header('Content-Length: ' . filesize($cheminPdf));
-readfile($cheminPdf);
+// header('Content-Type: application/pdf');
+// header('Content-Disposition: attachment; filename="calendrier_sms.pdf"');
+// header('Content-Length: ' . filesize($cheminPdf));
+// readfile($cheminPdf);
 exit;
 
 ?>
-
-<sms protocol="0" address="+33642134038" date="1644161544000" type="1" subject="null" body="Hello Anais ,tu vas bien ? J&amp;#039;ai envoy&#xE9; un message &#xE0; Ben ne sachant pas si c&amp;#039;est lui qui est de permanence , pour info, je prends Garcia Florian lundi 7/2 &#xE0; 7h en. Spl tu peux me le d&#xE9;clarer stp ? Remplacement schwanke Christophe maladie bisou !!!! " toa="null" sc_toa="null" service_center="null" read="1" status="-1" locked="0" date_sent="0" sub_id="1" readable_date="06 Feb 2022 16:32:24" contact_name=""/>
