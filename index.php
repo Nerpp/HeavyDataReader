@@ -108,15 +108,20 @@ function ajouterCallAutableau(&$smsByDay, $reader) {
 }
 
 function ajouterMailAuTableau(&$smsByDay, $reader) {
-    $date = $reader->getAttribute('date');
-    $body = $reader->getAttribute('body');
 
+    $timestamp = $reader->getAttribute('date');
+
+ // Convertir les millisecondes en secondes
+$timestamp = (float)$timestamp / 1000;
+
+// $date = new \DateTime();
+// Formatage en jour clé (Y-m-d)
+$dayKey = date('Y-m-d',$timestamp);
+
+    $body = $reader->getAttribute('body');
     $subject = $reader->getAttribute('subject');
 
- 
-    $timestamp = (int)($date / 1000);  // Conversion du timestamp
-    $dayKey = date('Y-m-d', $timestamp);  // Regrouper les messages par jour
-
+    
     $smsByDay[$dayKey][] = [
         'title' => '<strong>Mail</strong> Sujet :'. $subject.' ',
         'time' => date('H:i:s', $timestamp),  // Heure du SMS
@@ -133,6 +138,13 @@ lireFichierXML('sms-20240818155416.xml', $smsByDay);  // Deuxième fichier, sans
 lireFichierXML('calls-20240818155416.xml', $smsByDay);  // Troisième fichier sans filtrage
 lireFichierXML('smses_backup.xml', $smsByDay);  // Quatrième fichier sans filtrage
 lireFichierXML('email.xml', $smsByDay);  // Quatrième fichier sans filtrage
+
+
+$dates = array_keys($smsByDay);
+sort($dates);
+
+// var_dump($dates);
+// die;
 
 
 // --- Étape 2 : Générer le PDF avec TCPDF ---
@@ -162,6 +174,7 @@ $period = new DatePeriod($firstDate, $interval, $lastDate->modify('+1 day'));
 
 // Titre principal du PDF
 $pdf->SetFont('helvetica', 'B', 14);
+//a Voir
 $pdf->Cell(0, 10, "Calendrier des SMS: " . $firstDate->format('d M Y') . " - " . $lastDate->format('d M Y'), 0, 1, 'C');
 $pdf->Ln(5);
 
@@ -219,11 +232,7 @@ ob_end_clean();  // Nettoyer le tampon de sortie
 $cheminPdf = __DIR__ . '/dossiers_pdfs/calendrier_sms.pdf';  // Chemin du fichier PDF dans un sous-dossier "dossiers_pdfs"
 $pdf->Output($cheminPdf, 'F');  // F = enregistrer sur le serveur
 
-// Rediriger vers le fichier pour téléchargement
-// header('Content-Type: application/pdf');
-// header('Content-Disposition: attachment; filename="calendrier_sms.pdf"');
-// header('Content-Length: ' . filesize($cheminPdf));
-// readfile($cheminPdf);
+
 exit;
 
 ?>
