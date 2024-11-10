@@ -2,13 +2,13 @@
 require_once('vendor/autoload.php'); // Inclure TCPDF via autoload
 
 // Optimisation des paramètres d'exécution
-ini_set('memory_limit', '12G');
+ini_set('memory_limit', '24G');
 ini_set('display_errors', 0);  // Désactiver l'affichage des erreurs pour éviter les sorties non voulues
 date_default_timezone_set('Europe/Paris');
 ob_start();  // Démarrer la mise en mémoire tampon de sortie
 
 // --- Étape 1 : Lire et organiser les SMS par jour (fichiers XML) ---
-$numeroRecherche = ['0660839365', '+33660839365','0622913131','+33622913131','0612954512','+33612954512'];  // Numéros à rechercher
+$numeroRecherche = ['0660839365', '+33660839365','0622913131','+33622913131'];  // Numéros à rechercher 
 $smsByDay = [];  // Tableau regroupant les SMS par jour
 
 // Fonction pour lire un fichier XML et ajouter les SMS dans le tableau $smsByDay
@@ -140,11 +140,11 @@ function ajouterMailAuTableau(&$smsByDay, $reader) {
 }
 
 // Lecture des fichiers XML
-lireFichierXML('smsPerso.xml', $smsByDay, $numeroRecherche);  // Premier fichier avec filtrage par numéro
-lireFichierXML('sms-20240818155416.xml', $smsByDay);  // Deuxième fichier, sans filtrage
-lireFichierXML('calls-20240818155416.xml', $smsByDay);  // Troisième fichier sans filtrage
-lireFichierXML('smses_backup.xml', $smsByDay);  // Quatrième fichier sans filtrage
-lireFichierXML('email.xml', $smsByDay);  // Cinquième fichier sans filtrage
+lireFichierXML('smsPerso.xml', $smsByDay, $numeroRecherche);  // j'ai juste recherché avec les numéros intéressant
+lireFichierXML('sms-20240818155416.xml', $smsByDay);  // telephone pro actuel je traite les sms et mms
+lireFichierXML('calls-20240818155416.xml', $smsByDay);  // telephone pro actuel je traite les appels
+lireFichierXML('smses_backup.xml', $smsByDay);  // vieux téléphone pro j'ai regroupé tout les fichiers en .csv
+lireFichierXML('email.xml', $smsByDay);  // email
 
 $dates = array_keys($smsByDay);
 sort($dates);
@@ -342,6 +342,13 @@ $pdfCalendar->SetSubject('Calendrier de Travail');
 $pdfCalendar->SetMargins(10, 10, 10);
 $pdfCalendar->SetAutoPageBreak(TRUE, 10);
 
+// Initialiser les tableaux pour stocker les totaux par année et par mois
+$totalWorkingHoursByYear = [];
+$totalExtraHoursByYear = [];
+
+$totalWorkingHoursByMonth = [];
+$totalExtraHoursByMonth = [];
+
 // Calculer les semaines entre la première et la dernière date
 if (count($dates) > 0) {
     $firstMonday = clone $firstDate;
@@ -370,6 +377,10 @@ if (count($dates) > 0) {
             $day->modify("+$i day");
             $weekDays[] = $day;
         }
+
+        // Initialiser les totaux pour la semaine
+        $totalWorkingHoursWeek = 0;
+        $totalExtraHoursWeek = 0;
 
         // Définir les propriétés de la table
         $cellWidthHour = 15; // Largeur pour les étiquettes d'heures
@@ -405,6 +416,54 @@ if (count($dates) > 0) {
         }
         $pdfCalendar->Ln($cellHeight);
 
+        // Calculer les heures de travail pour la semaine
+        foreach ($weekDays as $day) {
+            $currentDay = $day->format('Y-m-d');
+            $dayNameEnglish = $day->format('l');
+
+            // Obtenir l'année et le mois
+            $year = $day->format('Y');
+            $month = $day->format('Y-m');
+
+            // Initialiser les totaux pour l'année et le mois si nécessaire
+            if (!isset($totalWorkingHoursByYear[$year])) {
+                $totalWorkingHoursByYear[$year] = 0;
+                $totalExtraHoursByYear[$year] = 0;
+            }
+            if (!isset($totalWorkingHoursByMonth[$month])) {
+                $totalWorkingHoursByMonth[$month] = 0;
+                $totalExtraHoursByMonth[$month] = 0;
+            }
+
+            // Initialiser les horaires de travail pour ce jour
+            $currentWorkingHours = [];
+            if ($currentDay === '2021-12-31') {
+                // Exception pour le 31/12/2021 : Horaires jusqu'à 12h
+                $currentWorkingHours = [['08:00', '12:00']];
+            } else {
+                // Utiliser les horaires de travail standards
+                if (isset($workingHours[$dayNameEnglish])) {
+                    $currentWorkingHours = $workingHours[$dayNameEnglish];
+                }
+            }
+
+            // Calculer les heures de travail pour le jour
+            $workingHoursDay = 0;
+            foreach ($currentWorkingHours as $interval) {
+                list($start, $end) = $interval;
+                $startTime = DateTime::createFromFormat('H:i', $start);
+                $endTime = DateTime::createFromFormat('H:i', $end);
+                $diff = $endTime->diff($startTime);
+                $hours = $diff->h + ($diff->i / 60);
+                $workingHoursDay += $hours;
+            }
+            $totalWorkingHoursWeek += $workingHoursDay;
+
+            // Ajouter les heures de travail du jour aux totaux annuels et mensuels
+            $totalWorkingHoursByYear[$year] += $workingHoursDay;
+            $totalWorkingHoursByMonth[$month] += $workingHoursDay;
+        }
+
         // Dessiner les lignes horaires
         $pdfCalendar->SetFont('helvetica', '', 8);
         for ($hour = 0; $hour < 24; $hour++) {
@@ -415,15 +474,17 @@ if (count($dates) > 0) {
             // Itérer à travers chaque jour
             foreach ($weekDays as $day) {
                 $currentDay = $day->format('Y-m-d');
-                $dayNameEnglish = $day->format('l'); // 'Monday', etc.
+                $dayNameEnglish = $day->format('l');
+
+                // Obtenir l'année et le mois
+                $year = $day->format('Y');
+                $month = $day->format('Y-m');
 
                 // Initialiser les horaires de travail pour ce jour
                 $currentWorkingHours = [];
                 if ($currentDay === '2021-12-31') {
-                    // Exception pour le 31/12/2021 : Horaires jusqu'à 12h
                     $currentWorkingHours = [['08:00', '12:00']];
                 } else {
-                    // Utiliser les horaires de travail standards
                     if (isset($workingHours[$dayNameEnglish])) {
                         $currentWorkingHours = $workingHours[$dayNameEnglish];
                     }
@@ -439,10 +500,7 @@ if (count($dates) > 0) {
                     $endMinute = intval(substr($end, 3, 2));
 
                     // Vérifier si l'heure actuelle est dans l'intervalle de travail
-                    if ($hour > $startHour && $hour < $endHour) {
-                        $isWorkingHour = true;
-                        break;
-                    } elseif ($hour == $startHour && $startMinute == 0) {
+                    if ($hour >= $startHour && $hour < $endHour) {
                         $isWorkingHour = true;
                         break;
                     } elseif ($hour == $endHour && $endMinute > 0) {
@@ -461,6 +519,11 @@ if (count($dates) > 0) {
                 } elseif ($hasMessage) {
                     $pdfCalendar->SetFillColor(128, 0, 128); // Violet
                     $fill = 1;
+                    // Incrémenter les heures supplémentaires
+                    $totalExtraHoursWeek += 1;
+                    // Ajouter aux totaux annuels et mensuels
+                    $totalExtraHoursByYear[$year] += 1;
+                    $totalExtraHoursByMonth[$month] += 1;
                 } else {
                     $fill = 0;
                 }
@@ -472,11 +535,107 @@ if (count($dates) > 0) {
         }
 
         // Ajouter une légende pour les couleurs
-        $pdfCalendar->SetFillColor(0, 255, 0);
+        $pdfCalendar->SetFillColor(211, 211, 211);
         $pdfCalendar->SetTextColor(0);
         $pdfCalendar->SetFont('helvetica', '', 8);
         $pdfCalendar->Cell(0, $cellHeight, 'Légende: Vert = Horaires de travail, Violet = Messages hors horaires', 0, 1, 'L', 1);
+
+        // Écrire les totaux en bas de page sur la même ligne avec surlignage
+        $pdfCalendar->Ln(5); // Espace avant les totaux
+        $pdfCalendar->SetFont('helvetica', 'B', 12);
+
+        // Construire le contenu HTML pour les totaux
+        $htmlTotals = '<p>Total des heures de travail pour la semaine : <span style="color:green;">' . round($totalWorkingHoursWeek, 2) . ' heures</span> &nbsp;&nbsp;&nbsp; Total des heures supplémentaires pour la semaine : <span style="color:purple;">' . $totalExtraHoursWeek . ' heures</span></p>';
+
+        // Écrire le contenu HTML dans le PDF
+        $pdfCalendar->writeHTML($htmlTotals);
     }
+
+    // --- Ajouter le résumé à la fin du PDF ---
+    $pdfCalendar->AddPage();
+    $pdfCalendar->SetFont('helvetica', 'B', 14);
+    $pdfCalendar->Cell(0, 10, 'Résumé des heures travaillées', 0, 1, 'C');
+    $pdfCalendar->Ln(5);
+
+    // Afficher le tableau des totaux par année
+    $pdfCalendar->SetFont('helvetica', 'B', 12);
+    $pdfCalendar->Cell(0, 10, 'Totaux par année', 0, 1, 'L');
+
+    $htmlYearly = '<table border="1" cellpadding="4">
+    <thead>
+    <tr>
+        <th>Année</th>
+        <th>Heures travaillées</th>
+        <th>Heures supplémentaires</th>
+    </tr>
+    </thead>
+    <tbody>';
+
+    foreach ($totalWorkingHoursByYear as $year => $workingHours) {
+        $extraHours = isset($totalExtraHoursByYear[$year]) ? $totalExtraHoursByYear[$year] : 0;
+        $htmlYearly .= '<tr>
+        <td>' . $year . '</td>
+        <td>' . round($workingHours, 2) . '</td>
+        <td>' . $extraHours . '</td>
+        </tr>';
+    }
+
+    $htmlYearly .= '</tbody></table>';
+
+    $pdfCalendar->writeHTML($htmlYearly);
+
+    // Afficher le tableau des totaux par mois
+    $pdfCalendar->Ln(10);
+    $pdfCalendar->SetFont('helvetica', 'B', 12);
+    $pdfCalendar->Cell(0, 10, 'Totaux par mois', 0, 1, 'L');
+
+    $htmlMonthly = '<table border="1" cellpadding="4">
+    <thead>
+    <tr>
+        <th>Mois</th>
+        <th>Heures travaillées</th>
+        <th>Heures supplémentaires</th>
+    </tr>
+    </thead>
+    <tbody>';
+
+    // Trier les mois
+    ksort($totalWorkingHoursByMonth);
+
+    // Tableau pour les noms des mois en français
+    $moisFrancais = [
+        '01' => 'Janvier',
+        '02' => 'Février',
+        '03' => 'Mars',
+        '04' => 'Avril',
+        '05' => 'Mai',
+        '06' => 'Juin',
+        '07' => 'Juillet',
+        '08' => 'Août',
+        '09' => 'Septembre',
+        '10' => 'Octobre',
+        '11' => 'Novembre',
+        '12' => 'Décembre'
+    ];
+
+    foreach ($totalWorkingHoursByMonth as $month => $workingHours) {
+        $extraHours = isset($totalExtraHoursByMonth[$month]) ? $totalExtraHoursByMonth[$month] : 0;
+        // Formater le mois en français
+        $dateObj = DateTime::createFromFormat('Y-m', $month);
+        $monthNumber = $dateObj->format('m');
+        $year = $dateObj->format('Y');
+        $formattedMonth = $moisFrancais[$monthNumber] . ' ' . $year;
+
+        $htmlMonthly .= '<tr>
+        <td>' . $formattedMonth . '</td>
+        <td>' . round($workingHours, 2) . '</td>
+        <td>' . $extraHours . '</td>
+        </tr>';
+    }
+
+    $htmlMonthly .= '</tbody></table>';
+
+    $pdfCalendar->writeHTML($htmlMonthly);
 }
 
 // --- Étape 7 : Exporter les Trois PDFs dans un Dossier ---
